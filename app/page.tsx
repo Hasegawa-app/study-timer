@@ -18,6 +18,8 @@ type ActiveSession = {
   startTime: string;
 };
 
+type FilterType = "today" | "week" | "all";
+
 const subjects = ["英語", "数学", "国語", "理科", "社会", "情報", "その他"];
 
 function formatDateTime(value: string) {
@@ -37,6 +39,35 @@ function formatMinutes(minutes: number) {
   return `${hours}時間${rest}分`;
 }
 
+function isToday(dateString: string) {
+  const date = new Date(dateString);
+  const now = new Date();
+
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+}
+
+function isThisWeek(dateString: string) {
+  const date = new Date(dateString);
+  const now = new Date();
+
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const day = today.getDay();
+  const diffToMonday = day === 0 ? 6 : day - 1;
+
+  const weekStart = new Date(today);
+  weekStart.setDate(today.getDate() - diffToMonday);
+  weekStart.setHours(0, 0, 0, 0);
+
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 7);
+
+  return date >= weekStart && date < weekEnd;
+}
+
 export default function Page() {
   const [subject, setSubject] = useState("英語");
   const [content, setContent] = useState("");
@@ -47,6 +78,8 @@ export default function Page() {
   const [manualSubject, setManualSubject] = useState("英語");
   const [manualContent, setManualContent] = useState("");
   const [manualMinutes, setManualMinutes] = useState("");
+
+  const [filter, setFilter] = useState<FilterType>("today");
 
   useEffect(() => {
     const savedLogs = localStorage.getItem("studyLogs");
@@ -169,9 +202,36 @@ export default function Page() {
     setLogs((prev) => prev.filter((log) => log.id !== id));
   };
 
+  const filteredLogs = useMemo(() => {
+    return logs.filter((log) => {
+      if (filter === "today") return isToday(log.startTime);
+      if (filter === "week") return isThisWeek(log.startTime);
+      return true;
+    });
+  }, [logs, filter]);
+
   const totalMinutes = useMemo(() => {
-    return logs.reduce((sum, log) => sum + log.durationMinutes, 0);
-  }, [logs]);
+    return filteredLogs.reduce((sum, log) => sum + log.durationMinutes, 0);
+  }, [filteredLogs]);
+
+  const subjectSummary = useMemo(() => {
+    const summaryMap = new Map<string, number>();
+
+    for (const subject of subjects) {
+      summaryMap.set(subject, 0);
+    }
+
+    for (const log of filteredLogs) {
+      summaryMap.set(
+        log.subject,
+        (summaryMap.get(log.subject) || 0) + log.durationMinutes
+      );
+    }
+
+    return Array.from(summaryMap.entries())
+      .filter(([, minutes]) => minutes > 0)
+      .sort((a, b) => b[1] - a[1]);
+  }, [filteredLogs]);
 
   const activeElapsedMinutes = active
     ? Math.max(
@@ -179,6 +239,9 @@ export default function Page() {
         Math.floor((now - new Date(active.startTime).getTime()) / 60000)
       )
     : 0;
+
+  const filterLabel =
+    filter === "today" ? "今日" : filter === "week" ? "今週" : "全部";
 
   return (
     <main
@@ -235,7 +298,7 @@ export default function Page() {
             }}
           >
             <div style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: 8 }}>
-              合計勉強時間
+              {filterLabel}の合計勉強時間
             </div>
             <div
               style={{
@@ -302,6 +365,58 @@ export default function Page() {
 
         <section
           style={{
+            background: "#ffffff",
+            borderRadius: 16,
+            padding: 20,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+            border: "1px solid #e5e7eb",
+          }}
+        >
+          <h2
+            style={{
+              marginTop: 0,
+              marginBottom: 16,
+              fontSize: "1.1rem",
+              color: "#111827",
+            }}
+          >
+            表示フィルタ
+          </h2>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            {[
+              { key: "today", label: "今日" },
+              { key: "week", label: "今週" },
+              { key: "all", label: "全部" },
+            ].map((item) => (
+              <button
+                key={item.key}
+                onClick={() => setFilter(item.key as FilterType)}
+                style={{
+                  border: "none",
+                  borderRadius: 999,
+                  padding: "10px 16px",
+                  fontSize: "0.95rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  background: filter === item.key ? "#2563eb" : "#e5e7eb",
+                  color: filter === item.key ? "#fff" : "#374151",
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section
+          style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
             gap: 16,
@@ -327,12 +442,7 @@ export default function Page() {
               タイマーで記録
             </h2>
 
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-              }}
-            >
+            <div style={{ display: "grid", gap: 12 }}>
               <div>
                 <label
                   style={{
@@ -463,12 +573,7 @@ export default function Page() {
               手入力で記録
             </h2>
 
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-              }}
-            >
+            <div style={{ display: "grid", gap: 12 }}>
               <div>
                 <label
                   style={{
@@ -610,14 +715,118 @@ export default function Page() {
                 color: "#111827",
               }}
             >
-              記録一覧
+              科目別集計
             </h2>
             <div style={{ color: "#6b7280", fontSize: "0.9rem" }}>
-              {logs.length}件
+              {filterLabel}の記録
             </div>
           </div>
 
-          {logs.length === 0 ? (
+          {subjectSummary.length === 0 ? (
+            <div
+              style={{
+                padding: "20px 12px",
+                textAlign: "center",
+                color: "#6b7280",
+                background: "#f9fafb",
+                borderRadius: 12,
+                border: "1px dashed #d1d5db",
+              }}
+            >
+              この条件ではまだ記録がないで
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {subjectSummary.map(([subjectName, minutes]) => {
+                const percentage =
+                  totalMinutes > 0 ? Math.round((minutes / totalMinutes) * 100) : 0;
+
+                return (
+                  <div
+                    key={subjectName}
+                    style={{
+                      padding: 14,
+                      borderRadius: 12,
+                      background: "#fafafa",
+                      border: "1px solid #e5e7eb",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        marginBottom: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, color: "#111827" }}>
+                        {subjectName}
+                      </div>
+                      <div style={{ color: "#374151", fontWeight: 700 }}>
+                        {formatMinutes(minutes)}（{percentage}%）
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        width: "100%",
+                        height: 10,
+                        background: "#e5e7eb",
+                        borderRadius: 999,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${percentage}%`,
+                          height: "100%",
+                          background: "#2563eb",
+                          borderRadius: 999,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section
+          style={{
+            background: "#ffffff",
+            borderRadius: 16,
+            padding: 20,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+            border: "1px solid #e5e7eb",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              marginBottom: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <h2
+              style={{
+                margin: 0,
+                fontSize: "1.1rem",
+                color: "#111827",
+              }}
+            >
+              記録一覧
+            </h2>
+            <div style={{ color: "#6b7280", fontSize: "0.9rem" }}>
+              {filteredLogs.length}件
+            </div>
+          </div>
+
+          {filteredLogs.length === 0 ? (
             <div
               style={{
                 padding: "24px 12px",
@@ -628,16 +837,11 @@ export default function Page() {
                 border: "1px dashed #d1d5db",
               }}
             >
-              まだ記録がないで
+              この条件ではまだ記録がないで
             </div>
           ) : (
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-              }}
-            >
-              {logs.map((log) => (
+            <div style={{ display: "grid", gap: 12 }}>
+              {filteredLogs.map((log) => (
                 <div
                   key={log.id}
                   style={{
